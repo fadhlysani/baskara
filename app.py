@@ -1,121 +1,129 @@
 import streamlit as st
+import streamlit.components.v1 as stc
 import pickle
 import pandas as pd
 import numpy as np
 
-# --- Pemuatan Model ---
+# --- Model and Pipeline Loading ---
 MODEL_FILE = 'car_price_prediction_model.pkl'
+
 try:
     with open(MODEL_FILE, 'rb') as file:
-        prediction_model = pickle.load(file)
+        # This object is the entire pipeline (preprocessor + model)
+        prediction_pipeline = pickle.load(file)
+except FileNotFoundError:
+    st.error(f"Error: The model file '{MODEL_FILE}' was not found.")
+    st.info("Please make sure the trained model file from your Colab notebook is in the same directory as this script and is named correctly.")
+    st.stop()
 except Exception as e:
-    st.error(f"Error memuat model: {e}")
+    st.error(f"An error occurred while loading the model: {e}")
     st.stop()
 
-# ==============================================================================
-# !! LANGKAH 1: LENGKAPI SEMUA INFORMASI DI BAGIAN INI DARI NOTEBOOK ANDA !!
-# ==============================================================================
 
-# A. DAFTAR LENGKAP SEMUA KATEGORI UNIK DARI SETIAP FITUR
-# (Gunakan .unique() pada kolom di DataFrame training Anda)
-make_options = ['Kia', 'BMW', 'Volvo', 'Audi', 'Nissan', 'Hyundai', 'Chevrolet', 'Ford', 'Acura', 'Cadillac', 'Infiniti', 'Lincoln', 'Jeep', 'Mercedes-Benz', 'GMC', 'Dodge', 'Honda', 'Chrysler', 'Ram', 'Lexus', 'Subaru', 'Mazda', 'Toyota', 'Volkswagen', 'Buick', 'Maserati', 'Land Rover', 'Porsche', 'Jaguar', 'Mitsubishi'] # Sesuaikan/lengkapi
-transmission_options = ['automatic', 'manual'] # Tambahkan 'others' jika ada
-# ... (Tambahkan list options untuk 'model', 'trim', 'body', 'state', 'color', 'interior', 'seller')
+# --- HTML Templates for UI ---
+html_temp = """
+<div style="background-color:#2E3D49;padding:10px;border-radius:10px">
+    <h1 style="color:#fff;text-align:center">Car Price Prediction App</h1> 
+    <h4 style="color:#fff;text-align:center">Predicting Vehicle Selling Prices</h4> 
+</div>
+"""
 
-# B. NILAI MEAN & SCALE DARI STANDARDSCALER ANDA
-# (Anda bisa dapatkan dari objek scaler yang sudah di-fit: scaler.mean_ dan scaler.scale_)
-# Urutan nama kolom di sini HARUS SAMA dengan urutan saat Anda scaling.
-numerical_features = ['year', 'condition', 'odometer', 'mmr']
-# Contoh nilai, GANTI DENGAN NILAI ASLI DARI NOTEBOOK ANDA
-scaler_means = {'year': 2010.0, 'condition': 3.0, 'odometer': 60000.0, 'mmr': 15000.0}
-scaler_scales = {'year': 2.5, 'condition': 1.2, 'odometer': 35000.0, 'mmr': 8000.0}
+desc_temp = """
+### Car Price Prediction App
+This app uses a Random Forest Regressor model to predict the selling price of a used car based on its features.
 
-# C. URUTAN KOLOM FINAL SETELAH SEMUA PREPROCESSING
-# (Gunakan X_train.columns.tolist() di notebook Anda untuk mendapatkan daftar ini)
-# Ini adalah bagian paling penting. Urutan harus 100% akurat.
-FINAL_COLUMN_ORDER = [
-    # Fitur Numerik yang sudah di-scaling
-    'year', 'condition', 'odometer', 'mmr',
-    # Fitur Kategorikal yang sudah di-one-hot-encode (CONTOH)
-    'make_Acura', 'make_Audi', 'make_BMW', #... dan seterusnya untuk semua merek
-    # ... (Lanjutkan untuk semua fitur kategorikal lainnya)
-    'transmission_automatic', 'transmission_manual'
-]
+#### Data Source
+- **Kaggle:** [Vehicle Sales Data](https://www.kaggle.com/datasets/syedanwarafridi/vehicle-sales-data)
 
-# ==============================================================================
-# LANGKAH 2: KODE APLIKASI STREAMLIT (TIDAK PERLU DIUBAH)
-# ==============================================================================
+#### App Sections
+- **Home:** You are here. Provides an overview of the app.
+- **Machine Learning App:** Enter the car's details to get a price prediction.
+"""
 
-st.set_page_config(page_title="Prediksi Harga Mobil", page_icon="🚗", layout="centered")
-st.title("🚗 Aplikasi Prediksi Harga Mobil")
-st.write("Aplikasi ini menggunakan model yang sudah dilatih untuk memprediksi harga jual mobil bekas.")
-
-def preprocess_and_predict(data_dict):
-    df = pd.DataFrame(data_dict)
-
-    # --- 1. Manual Scaling ---
-    st.write("Data sebelum di-scaling:")
-    st.dataframe(df[numerical_features])
-    for col in numerical_features:
-        df[col] = (df[col] - scaler_means[col]) / scaler_scales[col]
-    st.write("Data setelah di-scaling:")
-    st.dataframe(df[numerical_features])
-
-    # --- 2. Manual One-Hot Encoding ---
-    # Definisikan semua fitur kategorikal dan opsinya di sini
-    categorical_info = {
-        'make': make_options,
-        'transmission': transmission_options,
-        # ... (Tambahkan fitur lain seperti 'model', 'body', 'color', dll.)
+# --- Prediction Function ---
+def predict(year, condition, odometer, mmr, make, model, trim, body, transmission, state):
+    """
+    Takes user inputs, creates a DataFrame, and uses the loaded pipeline to make a prediction.
+    The pipeline handles all preprocessing (scaling, one-hot encoding).
+    """
+    # Create a dictionary with the user's input
+    input_data = {
+        'year': [year],
+        'condition': [condition],
+        'odometer': [odometer],
+        'mmr': [mmr],
+        'make': [make],
+        'model': [model],
+        'trim': [trim],
+        'body': [body],
+        'transmission': [transmission],
+        'state': [state]
     }
-    for feature, options in categorical_info.items():
-        for option in options:
-            col_name = f"{feature}_{option}"
-            df[col_name] = (df[feature] == option).astype(int)
-    df = df.drop(columns=list(categorical_info.keys()))
 
-    # --- 3. Pastikan Kolom Sesuai ---
-    st.write("Fitur yang dihasilkan setelah encoding:")
-    st.dataframe(df.T) # Transpose untuk tampilan lebih baik
-    
-    # Tambah kolom yang hilang dan pastikan urutan benar
-    for col in FINAL_COLUMN_ORDER:
-        if col not in df.columns:
-            df[col] = 0
-    processed_df = df[FINAL_COLUMN_ORDER]
+    # Convert the dictionary to a pandas DataFrame
+    # The column names MUST match the ones used during model training.
+    input_df = pd.DataFrame(input_data)
 
-    st.write("Data final yang dikirim ke model (pastikan urutan & jumlah kolom benar):")
-    st.dataframe(processed_df)
+    # Use the loaded pipeline to make a prediction
+    # The pipeline will automatically apply the same preprocessing steps.
+    prediction = prediction_pipeline.predict(input_df)
 
-    # Lakukan prediksi
-    prediction = prediction_model.predict(processed_df)
+    # The prediction is returned as an array, so we get the first element.
     return prediction[0]
 
-with st.form("input_form"):
-    st.header("Masukkan Detail Mobil")
+
+# --- UI Function for the ML App ---
+def run_ml_app():
+    """
+    Defines the user interface for the prediction part of the app.
+    """
+    st.subheader("Enter Car Details for Prediction")
+
+    # Structure Form with columns for better layout
     left, right = st.columns(2)
-    year = left.number_input("Tahun", 1990, 2025, 2015)
-    odometer = left.number_input("Jarak Tempuh (Odometer)", value=50000)
-    mmr = right.number_input("Nilai Pasar (MMR)", value=20000)
-    condition = right.number_input("Kondisi (1-5)", 1.0, 5.0, 3.5)
+    
+    # Input fields for the car features
+    year = left.number_input("Year", min_value=1990, max_value=2025, value=2015)
+    odometer = left.number_input("Odometer (miles)", value=50000)
+    mmr = right.number_input("Market Value (MMR)", value=20000)
+    condition = right.number_input("Condition Rating (1-5)", min_value=1.0, max_value=5.0, step=0.1, value=3.5)
+    
+    # These dropdowns should contain the options your model was trained on.
+    # I've taken these from your Colab notebook.
+    make = left.selectbox("Brand", ('Kia', 'BMW', 'Volvo', 'Audi', 'Nissan', 'Hyundai', 'Chevrolet', 'Ford', 'Acura', 'Cadillac', 'Infiniti', 'Lincoln', 'Jeep', 'Mercedes-Benz', 'GMC', 'Dodge', 'Honda', 'Chrysler', 'Ram', 'Lexus', 'Subaru', 'Mazda', 'Toyota', 'Volkswagen', 'Buick', 'Maserati', 'Land Rover', 'Porsche', 'Jaguar', 'Mitsubishi'))
+    model = right.selectbox("Model", ('Sorento', '3 Series', 'S60', 'A3', 'Altima', 'Elantra', 'Cruze', 'F-150', 'MDX', 'CTS', 'G37', 'MKZ', 'Grand Cherokee', 'E-Class', 'Acadia', 'Charger', 'Civic', 'Town and Country', '1500', 'IS 250', 'Outback', 'Mazda3', 'Corolla', 'Jetta', 'Enclave', 'Ghibli', 'Range Rover', 'Cayenne', 'XF', 'Outlander Sport'))
+    trim = left.selectbox("Trim", ('LX', 'Base', 'T5', 'Premium', '2.5 S', 'SE', '1LT', 'XLT', 'i', 'Luxury', 'Journey', 'Hybrid', 'Laredo', 'E350', 'SLE', 'SXT', 'EX', 'Touring', 'Big Horn', 'Sport', '2.5i Premium', 's Grand Touring', 'L', 'SportWagen SE', 'Convenience', 'Limited', 'LTZ', 'SLT', 'Express', 'SR5', 'ES 350'))
+    body = right.selectbox("Body Type", ('SUV', 'Sedan', 'Wagon', 'Convertible', 'Coupe', 'Hatchback', 'Crew Cab', 'Minivan', 'Van', 'SuperCrew', 'SuperCab', 'Quad Cab', 'King Cab', 'Double Cab', 'Extended Cab', 'Access Cab'))
+    transmission = left.selectbox("Transmission", ('automatic', 'manual'))
+    state = right.selectbox("State", ('fl', 'ca', 'pa', 'tx', 'ga', 'in', 'nj', 'va', 'il', 'tn', 'az', 'oh', 'mi', 'nc', 'co', 'sc', 'mo', 'md', 'wi', 'nv', 'ma', 'pr', 'mn', 'or', 'wa', 'ny', 'la', 'hi', 'ne', 'ut', 'al', 'ms', 'ct'))
+    
+    button = st.button("Predict Price")
 
-    make = st.selectbox("Merek", make_options)
-    transmission = st.selectbox("Transmisi", transmission_options)
-    # ... (Tambahkan widget input untuk 'model', 'trim', 'body', 'state', 'color', dll.)
-
-    submitted = st.form_submit_button("Prediksi Harga")
-
-    if submitted:
-        input_data = {
-            'year': [year], 'condition': [condition], 'odometer': [odometer], 'mmr': [mmr],
-            'make': [make], 'transmission': [transmission],
-            # ... (Tambahkan input lain ke dictionary ini)
-        }
+    # If button is clicked, run prediction
+    if button:
+        # Call the prediction function with the user's input
+        result = predict(year, condition, odometer, mmr, make, model, trim, body, transmission, state)
         
-        try:
-            with st.spinner('Memproses data dan menghitung prediksi...'):
-                result = preprocess_and_predict(input_data)
-            st.success(f"### Estimasi Harga Jual: **${result:,.2f}**")
-        except Exception as e:
-            st.error(f"Terjadi error saat prediksi: {e}")
-            st.warning("Penyebab paling umum adalah **urutan kolom yang salah** di `FINAL_COLUMN_ORDER`. Harap periksa kembali notebook Anda.")
+        # Display the result formatted as currency
+        st.success(f"The predicted selling price of the car is **${result:,.2f}**")
+
+
+# --- Main App Function ---
+def main():
+    """
+    Main function to run the Streamlit app.
+    """
+    stc.html(html_temp)
+    
+    menu = ["Home", "Machine Learning App"]
+    choice = st.sidebar.selectbox("Menu", menu)
+
+    if choice == "Home":
+        st.subheader("Home")
+        st.markdown(desc_temp, unsafe_allow_html=True)
+    elif choice == "Machine Learning App":
+        run_ml_app()
+
+
+if __name__ == "__main__":
+    main()
