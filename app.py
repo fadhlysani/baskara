@@ -4,163 +4,126 @@ import pickle
 import pandas as pd
 import numpy as np
 
-# --- Konfigurasi Halaman ---
-st.set_page_config(
-    page_title="Prediksi Harga Mobil",
-    page_icon="🚗",
-    layout="wide"
-)
-
-# --- Pemuatan Model ---
+# --- Model and Pipeline Loading ---
 MODEL_FILE = 'car_price_prediction_model.pkl'
 
 try:
     with open(MODEL_FILE, 'rb') as file:
-        # Objek ini diasumsikan HANYA model, BUKAN pipeline lengkap.
-        prediction_model = pickle.load(file)
+        # This object is the entire pipeline (preprocessor + model)
+        prediction_pipeline = pickle.load(file)
 except FileNotFoundError:
-    st.error(f"Error: File model '{MODEL_FILE}' tidak ditemukan.")
-    st.info("Pastikan file .pkl dari notebook Anda berada di folder yang sama dengan skrip ini.")
+    st.error(f"Error: The model file '{MODEL_FILE}' was not found.")
+    st.info("Please make sure the trained model file from your Colab notebook is in the same directory as this script and is named correctly.")
     st.stop()
 except Exception as e:
-    st.error(f"Terjadi error saat memuat model: {e}")
+    st.error(f"An error occurred while loading the model: {e}")
     st.stop()
 
 
-# ---
-# !! PENTING: ANDA HARUS MENGISI BAGIAN INI !!
-# Buka notebook pelatihan Anda dan dapatkan daftar nilai unik untuk setiap kolom.
-# Urutan dan nama harus SAMA PERSIS dengan data training Anda.
-# ---
+# --- HTML Templates for UI ---
+html_temp = """
+<div style="background-color:#2E3D49;padding:10px;border-radius:10px">
+    <h1 style="color:#fff;text-align:center">Car Price Prediction App</h1> 
+    <h4 style="color:#fff;text-align:center">Predicting Vehicle Selling Prices</h4> 
+</div>
+"""
 
-# 1. Daftar semua opsi unik untuk setiap fitur kategorikal
-make_options = ['Kia', 'BMW', 'Volvo', 'Audi', 'Nissan', 'Hyundai', 'Chevrolet', 'Ford', 'Acura', 'Cadillac', 'Infiniti', 'Lincoln', 'Jeep', 'Mercedes-Benz', 'GMC', 'Dodge', 'Honda', 'Chrysler', 'Ram', 'Lexus', 'Subaru', 'Mazda', 'Toyota', 'Volkswagen', 'Buick', 'Maserati', 'Land Rover', 'Porsche', 'Jaguar', 'Mitsubishi'] # Contoh, lengkapi/sesuaikan
-model_options = ['Sorento', '3 Series', 'S60', 'A3', 'Altima', 'Elantra', 'Cruze', 'F-150', 'MDX', 'CTS', 'G37', 'MKZ', 'Grand Cherokee', 'E-Class', 'Acadia', 'Charger', 'Civic', 'Town and Country', '1500', 'IS 250', 'Outback', 'Mazda3', 'Corolla', 'Jetta', 'Enclave', 'Ghibli', 'Range Rover', 'Cayenne', 'XF', 'Outlander Sport'] # Contoh, lengkapi/sesuaikan
-trim_options = ['LX', 'Base', 'T5', 'Premium', '2.5 S', 'SE', '1LT', 'XLT', 'i', 'Luxury', 'Journey', 'Hybrid', 'Laredo', 'E350', 'SLE', 'SXT', 'EX', 'Touring', 'Big Horn', 'Sport', '2.5i Premium', 's Grand Touring', 'L', 'SportWagen SE', 'Convenience', 'Limited', 'LTZ', 'SLT', 'Express', 'SR5', 'ES 350'] # Contoh, lengkapi/sesuaikan
-body_options = ['SUV', 'Sedan', 'Wagon', 'Convertible', 'Coupe', 'Hatchback', 'Crew Cab', 'Minivan', 'Van', 'SuperCrew', 'SuperCab', 'Quad Cab', 'King Cab', 'Double Cab', 'Extended Cab', 'Access Cab'] # Contoh, lengkapi/sesuaikan
-state_options = ['fl', 'ca', 'pa', 'tx', 'ga', 'in', 'nj', 'va', 'il', 'tn', 'az', 'oh', 'mi', 'nc', 'co', 'sc', 'mo', 'md', 'wi', 'nv', 'ma', 'pr', 'mn', 'or', 'wa', 'ny', 'la', 'hi', 'ne', 'ut', 'al', 'ms', 'ct'] # Contoh, lengkapi/sesuaikan
-transmission_options = ['automatic', 'manual', 'others'] # 'others' mungkin ada, cek data Anda
+desc_temp = """
+### Car Price Prediction App
+This app uses a Random Forest Regressor model to predict the selling price of a used car based on its features.
 
-# !! Fitur baru dari analisis model, harap isi dengan nilai dari data Anda !!
-color_options = ['black', 'white', 'gray', 'silver', 'blue', 'red', '—'] # GANTI DENGAN OPSI DARI DATA ANDA
-interior_options = ['black', 'gray', 'beige', 'tan', 'brown', '—'] # GANTI DENGAN OPSI DARI DATA ANDA
-seller_options = ['nissan infiniti of honolulu', 'the hertz corporation', 'ford motor credit company,llc'] # GANTI DENGAN OPSI DARI DATA ANDA
+#### Data Source
+- **Kaggle:** [Vehicle Sales Data](https://www.kaggle.com/datasets/syedanwarafridi/vehicle-sales-data)
 
-# 2. Daftar URUTAN KOLOM FINAL setelah preprocessing (One-Hot Encoding)
-# Ini adalah bagian paling krusial. Urutannya harus sama persis dengan saat model dilatih.
-# Anda bisa mendapatkan ini di notebook Anda dengan `X_train.columns.tolist()` setelah preprocessing
-FINAL_COLUMN_ORDER = [
-    # Fitur Numerik (sesuaikan urutan jika perlu)
-    'year', 'condition', 'odometer', 'mmr',
-    # One-Hot Encoded Features (INI HANYA CONTOH, HARUS DISESUAIKAN)
-    # Anda perlu membuat daftar LENGKAP seperti ini dari notebook Anda
-    'make_Acura', 'make_Audi', 'make_BMW', #... dan seterusnya untuk semua merek
-    'model_1500', 'model_3 Series', 'model_A3', #... dan seterusnya untuk semua model
-    'trim_Base', 'trim_Big Horn', # ... dan seterusnya
-    'body_Coupe', 'body_Crew Cab', # ... dan seterusnya
-    'state_al', 'state_az', 'state_ca', # ... dan seterusnya
-    'color_black', 'color_blue', # ... dan seterusnya
-    'interior_beige', 'interior_black', # ... dan seterusnya
-    'seller_ford motor credit company,llc', # ... dan seterusnya (perhatikan spasi dan huruf kecil!)
-    'transmission_automatic', 'transmission_manual', 'transmission_others'
-]
+#### App Sections
+- **Home:** You are here. Provides an overview of the app.
+- **Machine Learning App:** Enter the car's details to get a price prediction.
+"""
 
-# --- Template UI ---
-html_temp = """...""" # (Sama seperti sebelumnya)
-desc_temp = """...""" # (Sama seperti sebelumnya)
-
-# --- FUNGSI PREDIKSI (Dengan Preprocessing Manual) ---
-def preprocess_and_predict(data_dict):
+# --- Prediction Function ---
+def predict(year, condition, odometer, mmr, make, model, trim, body, transmission, state):
     """
-    Mengambil input, melakukan preprocessing manual, dan memprediksi harga.
+    Takes user inputs, creates a DataFrame, and uses the loaded pipeline to make a prediction.
+    The pipeline handles all preprocessing (scaling, one-hot encoding).
     """
-    df = pd.DataFrame(data_dict)
-
-    # --- Proses One-Hot Encoding Manual ---
-    # Buat dictionary yang berisi semua fitur kategorikal dan opsinya
-    categorical_features = {
-        'make': make_options, 'model': model_options, 'trim': trim_options,
-        'body': body_options, 'state': state_options, 'color': color_options,
-        'interior': interior_options, 'seller': seller_options,
-        'transmission': transmission_options
+    # Create a dictionary with the user's input
+    input_data = {
+        'year': [year],
+        'condition': [condition],
+        'odometer': [odometer],
+        'mmr': [mmr],
+        'make': [make],
+        'model': [model],
+        'trim': [trim],
+        'body': [body],
+        'transmission': [transmission],
+        'state': [state]
     }
 
-    # Loop untuk membuat kolom dummy (0 atau 1)
-    for feature, options in categorical_features.items():
-        for option in options:
-            col_name = f"{feature}_{option}"
-            df[col_name] = (df[feature] == option).astype(int)
+    # Convert the dictionary to a pandas DataFrame
+    # The column names MUST match the ones used during model training.
+    input_df = pd.DataFrame(input_data)
 
-    # Hapus kolom teks asli
-    df = df.drop(columns=list(categorical_features.keys()))
+    # Use the loaded pipeline to make a prediction
+    # The pipeline will automatically apply the same preprocessing steps.
+    prediction = prediction_pipeline.predict(input_df)
 
-    # --- Pastikan Urutan & Kelengkapan Kolom Sesuai dengan Training ---
-    # Tambahkan kolom yang mungkin hilang (jika input tidak mencakup semua kemungkinan)
-    for col in FINAL_COLUMN_ORDER:
-        if col not in df.columns:
-            df[col] = 0
-
-    # Pastikan urutan kolom sama persis
-    processed_df = df[FINAL_COLUMN_ORDER]
-
-    # Lakukan prediksi
-    prediction = prediction_model.predict(processed_df)
+    # The prediction is returned as an array, so we get the first element.
     return prediction[0]
 
-# --- UI Aplikasi ---
+
+# --- UI Function for the ML App ---
 def run_ml_app():
-    st.subheader("Masukkan Detail Mobil untuk Prediksi")
+    """
+    Defines the user interface for the prediction part of the app.
+    """
+    st.subheader("Enter Car Details for Prediction")
 
-    # Layout dengan kolom
+    # Structure Form with columns for better layout
     left, right = st.columns(2)
+    
+    # Input fields for the car features
+    year = left.number_input("Year", min_value=1990, max_value=2025, value=2015)
+    odometer = left.number_input("Odometer (miles)", value=50000)
+    mmr = right.number_input("Market Value (MMR)", value=20000)
+    condition = right.number_input("Condition Rating (1-5)", min_value=1.0, max_value=5.0, step=0.1, value=3.5)
+    
+    # These dropdowns should contain the options your model was trained on.
+    # I've taken these from your Colab notebook.
+    make = left.selectbox("Brand", ('Kia', 'BMW', 'Volvo', 'Audi', 'Nissan', 'Hyundai', 'Chevrolet', 'Ford', 'Acura', 'Cadillac', 'Infiniti', 'Lincoln', 'Jeep', 'Mercedes-Benz', 'GMC', 'Dodge', 'Honda', 'Chrysler', 'Ram', 'Lexus', 'Subaru', 'Mazda', 'Toyota', 'Volkswagen', 'Buick', 'Maserati', 'Land Rover', 'Porsche', 'Jaguar', 'Mitsubishi'))
+    model = right.selectbox("Model", ('Sorento', '3 Series', 'S60', 'A3', 'Altima', 'Elantra', 'Cruze', 'F-150', 'MDX', 'CTS', 'G37', 'MKZ', 'Grand Cherokee', 'E-Class', 'Acadia', 'Charger', 'Civic', 'Town and Country', '1500', 'IS 250', 'Outback', 'Mazda3', 'Corolla', 'Jetta', 'Enclave', 'Ghibli', 'Range Rover', 'Cayenne', 'XF', 'Outlander Sport'))
+    trim = left.selectbox("Trim", ('LX', 'Base', 'T5', 'Premium', '2.5 S', 'SE', '1LT', 'XLT', 'i', 'Luxury', 'Journey', 'Hybrid', 'Laredo', 'E350', 'SLE', 'SXT', 'EX', 'Touring', 'Big Horn', 'Sport', '2.5i Premium', 's Grand Touring', 'L', 'SportWagen SE', 'Convenience', 'Limited', 'LTZ', 'SLT', 'Express', 'SR5', 'ES 350'))
+    body = right.selectbox("Body Type", ('SUV', 'Sedan', 'Wagon', 'Convertible', 'Coupe', 'Hatchback', 'Crew Cab', 'Minivan', 'Van', 'SuperCrew', 'SuperCab', 'Quad Cab', 'King Cab', 'Double Cab', 'Extended Cab', 'Access Cab'))
+    transmission = left.selectbox("Transmission", ('automatic', 'manual'))
+    state = right.selectbox("State", ('fl', 'ca', 'pa', 'tx', 'ga', 'in', 'nj', 'va', 'il', 'tn', 'az', 'oh', 'mi', 'nc', 'co', 'sc', 'mo', 'md', 'wi', 'nv', 'ma', 'pr', 'mn', 'or', 'wa', 'ny', 'la', 'hi', 'ne', 'ut', 'al', 'ms', 'ct'))
+    
+    button = st.button("Predict Price")
 
-    # Input fitur numerik
-    year = left.number_input("Tahun", 1990, 2025, 2015)
-    odometer = left.number_input("Jarak Tempuh (Odometer)", value=50000, step=1000)
-    mmr = right.number_input("Nilai Pasar (MMR)", value=20000, step=500)
-    condition = right.number_input("Kondisi (1-5)", 1.0, 5.0, 3.5, 0.1)
+    # If button is clicked, run prediction
+    if button:
+        # Call the prediction function with the user's input
+        result = predict(year, condition, odometer, mmr, make, model, trim, body, transmission, state)
+        
+        # Display the result formatted as currency
+        st.success(f"The predicted selling price of the car is **${result:,.2f}**")
 
-    # Input fitur kategorikal
-    make = left.selectbox("Merek", make_options)
-    model = right.selectbox("Model", model_options)
-    trim = left.selectbox("Trim", trim_options)
-    body = right.selectbox("Tipe Bodi", body_options)
-    transmission = left.selectbox("Transmisi", transmission_options)
-    state = right.selectbox("Negara Bagian (State)", state_options)
-    color = left.selectbox("Warna (Color)", color_options)
-    interior = right.selectbox("Interior", interior_options)
-    seller = st.selectbox("Penjual (Seller)", seller_options) # Dibuat full-width
 
-    if st.button("Prediksi Harga", type="primary"):
-        with st.spinner('Menghitung prediksi...'):
-            input_data = {
-                'year': [year], 'condition': [condition], 'odometer': [odometer], 'mmr': [mmr],
-                'make': [make], 'model': [model], 'trim': [trim], 'body': [body],
-                'transmission': [transmission], 'state': [state], 'color': [color],
-                'interior': [interior], 'seller': [seller]
-            }
-            # Panggil fungsi prediksi
-            result = preprocess_and_predict(input_data)
-            st.success(f"Prediksi harga jual mobil adalah **${result:,.2f}**")
-            st.info("Catatan: Prediksi ini didasarkan pada model yang dilatih dan mungkin tidak mencerminkan harga pasar sesungguhnya.")
-
-# --- Fungsi Utama ---
+# --- Main App Function ---
 def main():
+    """
+    Main function to run the Streamlit app.
+    """
     stc.html(html_temp)
-    menu = ["Beranda", "Aplikasi Prediksi"]
+    
+    menu = ["Home", "Machine Learning App"]
     choice = st.sidebar.selectbox("Menu", menu)
 
-    if choice == "Beranda":
-        st.subheader("Beranda")
+    if choice == "Home":
+        st.subheader("Home")
         st.markdown(desc_temp, unsafe_allow_html=True)
-    elif choice == "Aplikasi Prediksi":
-        try:
-            run_ml_app()
-        except ValueError as e:
-            st.error(f"Terjadi error pada data: {e}")
-            st.warning("Pastikan daftar `FINAL_COLUMN_ORDER` di dalam kode `app.py` sudah benar dan lengkap sesuai urutan saat training.")
-        except Exception as e:
-            st.error(f"Terjadi error tak terduga: {e}")
+    elif choice == "Machine Learning App":
+        run_ml_app()
+
 
 if __name__ == "__main__":
     main()
