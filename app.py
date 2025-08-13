@@ -13,10 +13,10 @@ This app predicts the selling price of a car based on its features.
 
 # Load the trained model
 try:
-    with open('LGBMRegressor_best_model.pkl', 'rb') as f:
+    with open('car_price_prediction_model.pkl', 'rb') as f:
         best_model = pickle.load(f)
 except FileNotFoundError:
-    st.error("Error: Model file not found. Please make sure 'LGBMRegressor_best_model.pkl' is in the correct directory.")
+    st.error("Error: Model file not found. Please make sure 'car_price_prediction_model.pkl' is in the correct directory.")
     st.stop()
 
 # Assuming you have the scalers and encoders fitted on the training data
